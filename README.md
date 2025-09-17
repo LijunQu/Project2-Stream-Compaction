@@ -42,28 +42,28 @@ All implementations were validated against the CPU exclusive scan on empty array
 
 ### Scan — Non-power-of-two Ns
 
-![](images/scan_runtime_nonpow2_log2y.png)
+![](img/scan_runtime_nonpow2_log2y.png)
 
 With blockSize = 128 and timing that excludes host↔device copies, the non-power-of-two curve makes the trade-offs very clear. For tiny inputs, the CPU’s cache-friendly for-loop wins because any GPU kernel launch and global-memory synchronization costs completely dominate the actual arithmetic. As soon as the arrays reach the “real work” regime, Thrust pulls ahead and stays ahead: its implementation (backed by highly tuned primitives) keeps the number of full-array passes to the minimum and keeps those passes bandwidth-limited rather than launch-limited. The work-efficient GPU scan tracks Thrust’s shape but is consistently slower on ragged sizes because it must pad to the next power of two and then pay branching/guard costs on the edges during the up-sweep/down-sweep. The naïve scan degrades fastest as N grows; it performs O(NlogN) total work via many global passes and therefore burns additional memory bandwidth each round. Put differently: on non-PoT Ns, you can almost read the cost of padding and extra passes directly off the slope—Thrust amortizes it best, work-efficient is second, and naïve pays the full penalty.
 
 
 ### Scan — Power-of-two Ns
 
-![](images/scan_runtime_pow2_log2y.png)
+![](img/scan_runtime_pow2_log2y.png)
 
 On exact powers of two, the picture tightens. The work-efficient algorithm no longer wastes cycles on ragged tails, so it closes much of the gap to Thrust; both become strongly bandwidth-bound and scale smoothly. CPU still rules the tiny-N corner, but once you cross the small-array threshold, the GPU methods clearly take over. The naïve curve is the tell: although it benefits from perfect tree alignment too, it still requires extra global passes and therefore never quite catches the work-efficient curve. Practically, this means that if you can align batch sizes or pad once up front and keep the data on device, you get very close to Thrust-level performance with your own work-efficient kernel, whereas the naïve scan remains a teaching baseline rather than a contender.
 
 
 ### Stream Compaction — Non-power-of-two Ns
 
-![](images/compaction_runtime_nonpow2_plot_log2y.png)
+![](img/compaction_runtime_nonpow2_plot_log2y.png)
 
 Compaction is “map → scan → scatter,” so the scan behavior largely dictates the outcome. For small Ns, CPU w/o scan (reference) is excellent: it touches each element once, branches predictably, and writes compacted output without any kernel overhead. CPU with scan is slower because it pays for an extra pass plus a scatter on a single core. As N grows, GPU work-efficient compaction catches and then surpasses the CPU curves despite padding; the boolean map is embarrassingly parallel, the scan is the only truly synchronization-heavy stage, and the scatter becomes another bandwidth-friendly pass so long as you compute indices via an exclusive scan. The overall shape matches the scan plot: the moment the scan becomes cheaper on the GPU than on the CPU, the whole compaction pipeline flips in the GPU’s favor even on ragged sizes.
 
 
 ### Stream Compaction — Power-of-two Ns
 
-![](images/compaction_runtime_pow2_plot_sparse_log2y.png)
+![](img/compaction_runtime_pow2_plot_sparse_log2y.png)
 
 On powers of two, work-efficient GPU compaction wins decisively once arrays become moderate in size. With no ragged tiles, there is less branching and better warp utilization during both up-sweep and down-sweep; scatter writes are also more uniformly coalesced because exclusive indices are generated without padding holes. The CPU lines grow roughly linearly in milliseconds, while the GPU line remains flat for a long span and then scales gently with bandwidth. In other words: when the data layout matches the tree, compaction becomes a textbook two-or-three-pass, memory-bound pipeline that the GPU is built to execute.
 
@@ -82,7 +82,7 @@ For tiny inputs, overheads dominate; for large inputs, memory bandwidth dominate
 
 ### Nsight Kernal Memory Analysis
 
-![](images/NsightResult.png)
+![](img/NsightResult.png)
 
 From this Nsight capture, almost all GPU time is consumed by scan, not scatter: about 54% sits in the naïve scanKern, roughly 20% in the work-efficient down-sweep and 18% in the up-sweep, while the actual compaction scatter (kernCompact) is only ~2.6%. That breakdown matches the theory: the naïve scan performs O(NlogN) full-array passes and therefore dominates when it’s included, whereas the work-efficient phases are nicely balanced and largely memory-bandwidth-bound (two structured passes over padded data). The tiny, hidden kernel groups are almost certainly the boolean map, the “set last = 0” step between phases, and small padding helpers. Net read: the timeline reflects that scan—not scatter—is the limiting stage, the naïve path inflates total kernel time due to extra passes, and the efficient up/down sweeps split the remaining cost in a way that indicates regular, coalesced traffic rather than heavy synchronization.
 
