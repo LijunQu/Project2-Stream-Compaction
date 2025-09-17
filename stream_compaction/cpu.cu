@@ -20,6 +20,16 @@ namespace StreamCompaction {
         void scan(int n, int *odata, const int *idata) {
             timer().startCpuTimer();
             // TODO
+            if (n <= 0 || !odata || !idata) {
+                timer().endCpuTimer();
+                return;
+            }
+
+            int sum = 0;
+            for (int i = 0; i < n; ++i) {
+                odata[i] = sum;
+                sum += idata[i];
+            }
             timer().endCpuTimer();
         }
 
@@ -31,8 +41,20 @@ namespace StreamCompaction {
         int compactWithoutScan(int n, int *odata, const int *idata) {
             timer().startCpuTimer();
             // TODO
+            if (n <= 0 || !odata || !idata) {
+                timer().endCpuTimer();
+                return -1;
+            }
+
+            int cnt = 0;
+            for (int i = 0; i < n; ++i) {
+                if (idata[i] != 0) {
+                    odata[cnt] = idata[i];
+                    ++cnt;
+                }
+            }
             timer().endCpuTimer();
-            return -1;
+            return cnt;
         }
 
         /**
@@ -40,11 +62,47 @@ namespace StreamCompaction {
          *
          * @returns the number of elements remaining after compaction.
          */
+
         int compactWithScan(int n, int *odata, const int *idata) {
             timer().startCpuTimer();
             // TODO
+            if (n <= 0 || !odata || !idata) {
+                timer().endCpuTimer();
+                return -1;
+            }
+
+            int cnt = 0;
+
+            // stream compaction using the scan function. 
+            // Map the input array to an array of 0s and 1s, 
+            // scan it, and use scatter to produce the output. 
+            // You will need a CPU scatter implementation for this 
+            // (see slides or GPU Gems chapter for an explanation).
+
+
+            int* flag = new int[n];
+            int* scan = new int[n];
+
+            for (int i = 0; i < n; ++i) {
+                if (idata[i] != 0) ++cnt;
+                flag[i] = (idata[i] != 0) ? 1 : 0;
+            }
+
+            scan[0] = 0;
+            for (int i = 1; i < n; ++i) {
+                scan[i] = scan[i - 1] + flag[i - 1];
+            }
+
+            for (int i = 0; i < n; ++i) {
+                odata[scan[i]] = idata[i];
+            }
+
+
+            delete[] flag;
+            delete[] scan;
+
             timer().endCpuTimer();
-            return -1;
+            return cnt;
         }
     }
 }
